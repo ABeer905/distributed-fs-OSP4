@@ -4,7 +4,15 @@
 #define MFS_DIRECTORY    (0)
 #define MFS_REGULAR_FILE (1)
 
-#define MFS_BLOCK_SIZE   (4096)
+#define MFS_BLOCK_SIZE   (4096) 
+
+#define OP_LOOKUP 0
+#define OP_STAT   1
+#define OP_WRITE  2
+#define OP_READ   3
+#define OP_CREAT  4
+#define OP_UNLINK 5
+#define OP_TERM   6
 
 typedef struct __MFS_Stat_t {
     int type;   // MFS_DIRECTORY or MFS_REGULAR

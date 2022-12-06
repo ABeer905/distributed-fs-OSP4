@@ -1,27 +1,22 @@
 #include <stdio.h>
 #include "udp.h"
+#include "mfs.h"
 
-#define BUFFER_SIZE (1000)
-
-// client code
+//Testing code for the mfs library
 int main(int argc, char *argv[]) {
-    struct sockaddr_in addrSnd, addrRcv;
+	MFS_Init("localhost", atoi(argv[1]));
+	
+	char a[28];
 
-    int sd = UDP_Open(20000);
-    int rc = UDP_FillSockAddr(&addrSnd, "localhost", atoi(argv[1]));
+	MFS_Lookup(5, a);
+	MFS_Stat(5, 0);
+	MFS_Write(5, a, 0, 28);
+	MFS_Read(5, a, 0, 28);
+	MFS_Creat(5, 0, a);
+	MFS_Shutdown();
 
-    char message[BUFFER_SIZE];
-    sprintf(message, "hello world");
-
-    printf("client:: send message [%s]\n", message);
-    rc = UDP_Write(sd, &addrSnd, message, BUFFER_SIZE);
-    if (rc < 0) {
-	printf("client:: failed to send\n");
-	exit(1);
-    }
-
-    printf("client:: wait for reply...\n");
+    /*printf("client:: wait for reply...\n");
     rc = UDP_Read(sd, &addrRcv, message, BUFFER_SIZE);
-    printf("client:: got reply [size:%d contents:(%s)\n", rc, message);
+    printf("client:: got reply [size:%d contents:(%s)\n", rc, message);*/
     return 0;
 }
