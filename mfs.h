@@ -14,6 +14,8 @@
 #define OP_UNLINK 5
 #define OP_TERM   6
 
+#define RES_FAIL -1
+
 typedef struct __MFS_Stat_t {
     int type;   // MFS_DIRECTORY or MFS_REGULAR
     int size;   // bytes

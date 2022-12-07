@@ -44,7 +44,12 @@ int MFS_Lookup(int pinum, char *name){
 		return -1;
     }
 
-	return 0;
+	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
+	if(rc < 0){
+		return -1;
+	}
+
+	return (int) msg[0];
 }
 
 /*
@@ -121,7 +126,7 @@ int MFS_Read(int inum, char *buffer, int offset, int nbytes){
  * Creates a file
  * Returns 0 on success, -1 otherwise
  * pinum[in] - The parent directory inode
- * type[in] - Either UFS_DIRECTORY or UFS_REGULAR_FILE
+ * type[in] - Either MFS_DIRECTORY or MFS_REGULAR_FILE
  * name[in] - The name of the file
  */
 int MFS_Creat(int pinum, int type, char *name){
