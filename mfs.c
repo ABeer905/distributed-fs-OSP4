@@ -62,13 +62,21 @@ int MFS_Stat(int inum, MFS_Stat_t *m){
 	op = OP_STAT;
 	char msg[BUFFER_SIZE];
 	memcpy(&msg[0], &op, sizeof(int));
+	memcpy(&msg[4], &inum, sizeof(int));
 
 	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
 	if(rc < 0){
 		return -1;
 	}
 
-	return 0;
+	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
+	if(rc < 0){
+		return -1;
+	}
+	
+	m->type = (int) msg[4];
+	m->size = (int) msg[8];
+	return (int) msg[0];
 }
 
 /*

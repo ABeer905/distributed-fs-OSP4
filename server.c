@@ -75,23 +75,21 @@ void set_ret(char* msg, int code){
  * msg[out] - The inode of the child with name or -1 if failure
  */
 void lookup(char *msg){
-	int pinum = *(int*) &msg[4];
+	int pinum = (int) msg[4];
 	char name[28];
 	strcpy(&name[0], &msg[8]);
 
 	//Verify valid inode
-	if(pinum < 0 || pinum > UFS_BLOCK_SIZE * 8 * metadata->inode_bitmap_len){
+	if(pinum < 0 || pinum > UFS_BLOCK_SIZE * metadata->inode_region_len / sizeof(inode_t)){
 		return set_ret(msg, RES_FAIL);	
 	}
 
 	//Verify inode is in use
-	printf("IN USE: %d\n", inode_inuse(pinum));
 	if(!inode_inuse(pinum)){
 		return set_ret(msg, RES_FAIL);
 	}
 
 	//Inode passed in must be a directory
-	printf("TYPE: %d\n", inodes[pinum].type);
 	if(inodes[pinum].type != UFS_DIRECTORY){
 		return set_ret(msg, RES_FAIL);
 	}
@@ -114,7 +112,20 @@ void lookup(char *msg){
 }
 
 void stats(char *msg){
-	printf("STATS NOT IMPLEMENTED\n");
+	int inum = (int) msg[4];
+	//Verify valid inode
+	if(inum < 0 || inum > UFS_BLOCK_SIZE * metadata->inode_region_len / sizeof(inode_t)){
+		return set_ret(msg, RES_FAIL);	
+	}
+
+	//Verify inode is in use
+	if(!inode_inuse(inum)){
+		return set_ret(msg, RES_FAIL);
+	}
+	
+	set_ret(msg, 0);
+	memcpy(&msg[4], &inodes[inum].type, sizeof(int));
+	memcpy(&msg[8], &inodes[inum].size, sizeof(int));
 }
 
 void img_write(char *msg){
@@ -152,7 +163,6 @@ int main(int argc, char *argv[]) {
 	int port = atoi(argv[1]);
 	FILE fimg;
 	load_image(argv[2], &fimg);
-	printf("%d\n", metadata->data_region_len);
 
     int sd = UDP_Open(port);
     assert(sd > -1);

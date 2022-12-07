@@ -11,8 +11,17 @@ int main(int argc, char *argv[]) {
 	char a[28];
 	strcpy(&a[0], ".");
 
-	assert(MFS_Lookup(0, a) == 0);
-	assert(MFS_Lookup(1, a) == -1);
+	//Note: Tests assume fresh test file image of with 64 data blocks/64 inodes
+	assert(MFS_Lookup(0, a) == 0); //Test: get root directory
+	assert(MFS_Lookup(1, a) == -1); //Test: get unused inode
+	assert(MFS_Lookup(-1, a) == -1); //Test: get negative inode
+	assert(MFS_Lookup(100000, a) == -1); //Test: inode out of bounds
+	
+	MFS_Stat_t m;
+	assert(MFS_Stat(-1, &m) == -1); //Test: invalid inode
+	assert(MFS_Stat(0, &m) == 0); //Test: return 0 on valid inode
+	assert(m.type == MFS_DIRECTORY); //Test: Correct file type returned
+	assert(m.size == 2 * sizeof(MFS_DirEnt_t));
 
 	printf("ALL TESTS PASSED\n");
 
