@@ -97,9 +97,10 @@ void lookup(char *msg){
 	//Scan blocks for the file containing desired name
 	for(int i=0; i < DIRECT_PTRS; i++){
 		unsigned int data_block = inodes[pinum].direct[i];
-
-		if(data_block != 0){
-			int block = metadata->data_region_addr - data_block;
+	
+		if(data_block >= metadata->data_region_addr && 
+		   data_block < metadata->data_region_len + metadata->data_region_addr){
+			int block = data_block - metadata->data_region_addr;
 
 			for(int j = 0; j < UFS_BLOCK_SIZE / sizeof(dir_ent_t); j++){
 				dir_ent_t *entry = (dir_ent_t*) &data[(block * UFS_BLOCK_SIZE) + (j * sizeof(dir_ent_t))];
@@ -109,8 +110,16 @@ void lookup(char *msg){
 			}
 		}
 	}
+
+	msg[36] = 1; //Set flag indicating that scan was complete. Useful for other ops
+	return set_ret(msg, RES_FAIL); //File with name was not found
 }
 
+/**
+ * Returns the stats of a file
+ * msg[in] - The stat message containing opcode and inode
+ * msg[out] - A buffer containing return code, type, and size
+ */
 void stats(char *msg){
 	int inum = (int) msg[4];
 	//Verify valid inode
@@ -128,6 +137,98 @@ void stats(char *msg){
 	memcpy(&msg[8], &inodes[inum].size, sizeof(int));
 }
 
+/**
+ * Finds a new block within the file image.
+ * Returns the block id or 0 if failure
+ */
+unsigned int allocblock(){
+	int free = 0;
+	for(int i = 0; i < UFS_BLOCK_SIZE * metadata->data_bitmap_len / 4; i++){
+		for(int j = 31; j > 0; j--){
+			if(!(data_bitmap[i] >> j & 0x01)){
+				//Found free spot
+				free = i * 32 + 31 - j;
+				data_bitmap[i] |= 1UL << j;
+				break;
+			}
+		}
+
+		if(free){
+			if(free > metadata->data_region_len){
+				return 0;
+			}
+			break;
+		}
+	}
+	
+	return free;
+}
+
+/**
+ * Helper method to append data to a file or directory
+ * inode[in] - inode of file to write to
+ * buffer[in] - The data to write
+ * n[in] - The number of bytes to write
+ * offset[in] - Number of bytes from start of file to begin writing
+ */
+int writef(FILE *file, int inode, void* buffer, int n, int offset){
+	if(offset / UFS_BLOCK_SIZE >= DIRECT_PTRS){
+		return -1;
+	}
+	
+	unsigned int block = inodes[inode].direct[offset / UFS_BLOCK_SIZE];
+	if(block == 0){
+		block = metadata->data_region_addr + allocblock();
+		
+		if(!block){
+			return -1;
+		}
+
+		inodes[inode].direct[offset / UFS_BLOCK_SIZE] = block;
+	}
+	block -= metadata->data_region_addr;
+
+	//Case if not all data ca fit in current block
+	if(offset % UFS_BLOCK_SIZE + n > UFS_BLOCK_SIZE){
+		int split = UFS_BLOCK_SIZE - (offset % UFS_BLOCK_SIZE + n);
+		
+		//Allocate second block
+		if(offset / UFS_BLOCK_SIZE + 1 >= DIRECT_PTRS){
+			return -1;
+		}
+		unsigned int block2 = inodes[inode].direct[offset / UFS_BLOCK_SIZE + 1];
+		if(block2 == 0){
+			block2 = metadata->data_region_addr + allocblock();
+		
+			if(!block2){
+				return -1;
+			}
+
+			inodes[inode].direct[offset / UFS_BLOCK_SIZE] = block2;
+		}
+		block2 -= metadata->data_region_addr;
+
+		
+		//Write to first block
+		memcpy(&data[block * UFS_BLOCK_SIZE + offset], buffer, n + split);
+		//Write to second block
+		memcpy(&data[block2 * UFS_BLOCK_SIZE], &((char*)buffer)[n + split], -1 * split);
+
+	//Case if all data can fit in current block
+	}else{
+		memcpy(&data[block * UFS_BLOCK_SIZE + offset], buffer, n);
+	}
+
+	//Update metadata
+	if(offset + n > inodes[inode].size){
+		inodes[inode].size = offset + n;
+	}
+
+	//TODO: WRITE DATA TO DISK
+
+	return 0;
+}
+
 void img_write(char *msg){
 	printf("WRITE NOT IMPLEMENTED\n");
 }
@@ -136,8 +237,67 @@ void img_read(char *msg){
 	printf("READ NOT IMPLEMENTED\n");
 }
 
-void img_creat(char *msg){
-	printf("CREAT NOT IMPLEMENTED\n");
+void img_creat(char *msg, FILE *file){
+	int pinum = (int) msg[4];
+	int type = (int) msg[8];
+
+	char buffer[37];
+	memcpy(&buffer[4], &pinum, 4);
+	memcpy(&buffer[8], &msg[12], 28);
+	buffer[36] = 0;
+	lookup(buffer);
+
+	//Validates parent inode. Also ensures that a file with name does not already exist
+	if(buffer[0] == 0 || buffer[36] != 1){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//Scan inode bitmap looking for free inode
+	int free = -1;
+	for(int i = 0; i < UFS_BLOCK_SIZE * metadata->inode_bitmap_len / 4; i++){
+		for(int j = 31; j > 0; j--){
+			if(!(inode_bitmap[i] >> j & 0x01)){
+				//Found free spot
+				free = i * 32 + 31 - j;
+				break;
+			}
+		}
+
+		if(free > -1){
+			break;
+		}
+	}
+	
+	if(free < 0){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//If type directory we must populate with default entries "." and ".."
+	if(type == UFS_DIRECTORY){
+		dir_ent_t entry;
+		entry.inum = free; // current directory
+		strcpy(entry.name, ".");
+		if(writef(file, free, &entry, sizeof(dir_ent_t), 0) == -1){ return set_ret(msg, RES_FAIL); }
+
+		entry.inum = pinum; // parent directory
+		strcpy(entry.name, "..");
+		if(writef(file, free, &entry, sizeof(dir_ent_t), sizeof(dir_ent_t)) == -1){ return set_ret(msg, RES_FAIL); } 
+	}
+	
+	//Update parent directory
+	dir_ent_t entry;
+	entry.inum = free;
+	strcpy(entry.name, &msg[12]);
+
+	if(writef(file, pinum, &entry, sizeof(dir_ent_t), inodes[pinum].size) == 0){
+		//Initialize inode
+		inodes[free].type = type;
+		inode_bitmap[free / 32] |= 1UL << (31 - free % 32);
+		return set_ret(msg, 0);
+	}
+	
+	//Write to disk failed
+	return set_ret(msg, RES_FAIL);
 }
 
 void img_unlink(char *msg){
@@ -170,7 +330,7 @@ int main(int argc, char *argv[]) {
     while (1) {
 		struct sockaddr_in addr;
 		char msg[BUFFER_SIZE];
-		printf("server:: waiting...\n");
+		//printf("server:: waiting...\n");
 		UDP_Read(sd, &addr, msg, BUFFER_SIZE);
 		
 		int op;
@@ -189,7 +349,7 @@ int main(int argc, char *argv[]) {
 				img_read(msg);
 				break;
 			case OP_CREAT:
-				img_creat(msg);
+				img_creat(msg, &fimg);
 				break;
 			case OP_UNLINK:
 				img_unlink(msg);
@@ -203,7 +363,7 @@ int main(int argc, char *argv[]) {
 		}
 
         UDP_Write(sd, &addr, msg, BUFFER_SIZE);
-		printf("server:: reply\n");
+		//printf("server:: reply\n");
     }
     return 0; 
 }

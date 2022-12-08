@@ -75,7 +75,7 @@ int MFS_Stat(int inum, MFS_Stat_t *m){
 	}
 	
 	m->type = (int) msg[4];
-	m->size = (int) msg[8];
+	m->size = *(int*) &msg[8];
 	return (int) msg[0];
 }
 
@@ -126,7 +126,12 @@ int MFS_Read(int inum, char *buffer, int offset, int nbytes){
 		return -1;
 	}
 
-	return 0;
+	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
+	if(rc < 0){
+		return -1;
+	}
+
+	return (int) msg[0];
 
 }
 
@@ -151,8 +156,12 @@ int MFS_Creat(int pinum, int type, char *name){
 		return -1;
 	}
 
-	return 0;
+	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
+	if(rc < 0){
+		return -1;
+	}
 
+	return (int) msg[0];
 }
 
 /*
