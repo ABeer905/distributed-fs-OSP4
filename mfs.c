@@ -5,7 +5,7 @@
 
 //First 12 bytes -> Metadata
 //Remaining 4096 Bytes -> Disk block for read/write ops
-#define BUFFER_SIZE (5008)
+#define BUFFER_SIZE (5012)
 
 int sd, op;
 struct sockaddr_in addrSnd, addrRcv;
@@ -94,14 +94,20 @@ int MFS_Write(int inum, char *buffer, int offset, int nbytes){
 	memcpy(&msg[0], &op, sizeof(int));
 	memcpy(&msg[4], &inum, sizeof(int));
 	memcpy(&msg[8], &nbytes, sizeof(int));
-	memcpy(&msg[12], &buffer[offset], nbytes); 
-
+	memcpy(&msg[12], &offset, sizeof(int));
+	memcpy(&msg[16], &buffer, nbytes); 
+	
 	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
 	if(rc < 0){
 		return -1;
 	}
 
-	return 0;
+	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
+	if(rc < 0){
+		return -1;
+	}
+
+	return (int) msg[0];
 }
 
 /*

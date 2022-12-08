@@ -229,8 +229,41 @@ int writef(FILE *file, int inode, void* buffer, int n, int offset){
 	return 0;
 }
 
-void img_write(char *msg){
-	printf("WRITE NOT IMPLEMENTED\n");
+void img_write(char *msg, FILE *file){
+	int inum = *(int*) &msg[4];
+	int bytes = *(int*) &msg[8];
+	int offset = *(int*) &msg[12];
+
+	//Verify valid inode
+	if(inum < 0 || inum > UFS_BLOCK_SIZE * metadata->inode_region_len / sizeof(inode_t)){
+		return set_ret(msg, RES_FAIL);	
+	}
+
+	//Verify inode is in use
+	if(!inode_inuse(inum)){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//Inode passed in must be a regular file
+	if(inodes[inum].type != UFS_REGULAR_FILE){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//Max byte size == 4096
+	if(bytes > 4096){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//Offset cant be nagative
+	if(offset < 0){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	if(writef(file, inum, &msg[16], bytes, offset) == -1){
+		return set_ret(msg, RES_FAIL);
+	}else{
+		return set_ret(msg, 0);
+	}
 }
 
 void img_read(char *msg){
@@ -281,7 +314,13 @@ void img_creat(char *msg, FILE *file){
 
 		entry.inum = pinum; // parent directory
 		strcpy(entry.name, "..");
-		if(writef(file, free, &entry, sizeof(dir_ent_t), sizeof(dir_ent_t)) == -1){ return set_ret(msg, RES_FAIL); } 
+		if(writef(file, free, &entry, sizeof(dir_ent_t), sizeof(dir_ent_t)) == -1){ return set_ret(msg, RES_FAIL); }
+
+		//Initialize remaining directory entries to -1 (free)
+		entry.inum = -1;
+		for(int i = 2*sizeof(dir_ent_t); i < UFS_BLOCK_SIZE; i+=sizeof(dir_ent_t)){
+			memcpy(&data[free * UFS_BLOCK_SIZE + i], &entry, sizeof(dir_ent_t));
+		}
 	}
 	
 	//Update parent directory
@@ -289,9 +328,35 @@ void img_creat(char *msg, FILE *file){
 	entry.inum = free;
 	strcpy(entry.name, &msg[12]);
 
-	if(writef(file, pinum, &entry, sizeof(dir_ent_t), inodes[pinum].size) == 0){
+	//Find free entry in parent directory
+	int offset = 0;
+	for(int i = 0; i < DIRECT_PTRS; i++){
+		int data_block = inodes[pinum].direct[i];
+		if(data_block >= metadata->data_region_addr && 
+		   data_block < metadata->data_region_len + metadata->data_region_addr){
+			data_block -= metadata->data_region_addr;
+			for(int j = 0; j < UFS_BLOCK_SIZE / sizeof(dir_ent_t); j++){
+				if(((dir_ent_t*)&data[data_block * UFS_BLOCK_SIZE + j * sizeof(dir_ent_t)])->inum == -1){
+					offset = i * UFS_BLOCK_SIZE + j * sizeof(dir_ent_t);
+					break;
+				}
+			}
+		}
+		if(offset){
+			break;
+		}
+	}
+
+	if(!offset){
+		offset = inodes[pinum].size;
+	}
+
+	if(writef(file, pinum, &entry, sizeof(dir_ent_t), offset) == 0){
 		//Initialize inode
 		inodes[free].type = type;
+		if(type == UFS_REGULAR_FILE){
+			inodes[free].size = 0;
+		}
 		inode_bitmap[free / 32] |= 1UL << (31 - free % 32);
 		return set_ret(msg, 0);
 	}
@@ -343,7 +408,7 @@ int main(int argc, char *argv[]) {
 				stats(msg);
 				break;
 			case OP_WRITE:
-				img_write(msg);
+				img_write(msg, &fimg);
 				break;
 			case OP_READ:
 				img_read(msg);

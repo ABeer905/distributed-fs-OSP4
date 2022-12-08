@@ -14,6 +14,7 @@ int main(int argc, char *argv[]) {
 	strcpy(b, "my file");
 	char c[28];
 	strcpy(c, "my dir");
+	char msg[12] = "Hello World\0";
 
 	//Note: Tests assume fresh test file image of with 64 data blocks/64 inodes
 	assert(MFS_Lookup(0, a) == 0); //Test: get root directory
@@ -42,6 +43,16 @@ int main(int argc, char *argv[]) {
 	assert(m.size == 4 * sizeof(MFS_DirEnt_t));       //Test: Root directory size updated
 	MFS_Stat(pdir, &m);
 	assert(m.size == 3 * sizeof(MFS_DirEnt_t));		  //Test: new directory size has default directories as well as new one
+													  
+	int fd = MFS_Lookup(0, b);
+	MFS_Stat(fd, &m);
+	assert(m.size == 0);                             //Test: Asserts new file has size 0
+	assert(MFS_Write(fd, msg, 0, 5000) == -1);        //Test: Write greater than 4096 bytes (illegal)
+	assert(MFS_Write(pdir, msg, 0, 12) == -1);        //Test: Write to directory (illegal)
+	assert(MFS_Write(fd, msg, -1, 12) == -1);         //Test: Write to a negative offset (illegal)
+	assert(MFS_Write(fd, msg, 1, 12) == 0);           //Test: Write buffer to file
+	MFS_Stat(fd, &m);
+	assert(m.size == 13);                             //Test: Size update reflected by write
 
 	printf("ALL TESTS PASSED\n");
     return 0;
