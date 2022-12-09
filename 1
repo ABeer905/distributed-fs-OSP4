@@ -154,7 +154,7 @@ void stats(char *msg){
 unsigned int allocblock(){
 	int free = 0;
 	for(int i = 0; i < UFS_BLOCK_SIZE * metadata->data_bitmap_len / 4; i++){
-		for(int j = 31; j > -1; j--){
+		for(int j = 31; j > 0; j--){
 			if(!(data_bitmap[i] >> j & 0x01)){
 				//Found free spot
 				free = i * 32 + 31 - j;
@@ -164,13 +164,15 @@ unsigned int allocblock(){
 		}
 
 		if(free){
-			if(free >= metadata->data_region_len ){	
+			if(free >= metadata->data_region_len ){
+				printf("RETURNING 0\n");
 				return 0;
 			}
 			break;
 		}
 	}
 
+	printf("ALLOCATED BLOCK %d\n", free);
 	return free;
 }
 
@@ -187,16 +189,16 @@ int writef(FILE *file, int inode, void* buffer, int n, int offset){
 	}
 	
 	unsigned int block = inodes[inode].direct[offset / UFS_BLOCK_SIZE];
+	printf("READING BLOCK %d for INODE %d\n", block, inode);
 	if(block == 0){
 		block = allocblock();
+		
 		if(!block){
 			return -1;
 		}
 
-		block += metadata->data_region_addr;
-		inodes[inode].direct[offset / UFS_BLOCK_SIZE] = block;
+		inodes[inode].direct[offset / UFS_BLOCK_SIZE] = metadata->data_region_addr + block;
 	}
-	block -= metadata->data_region_addr;
 
 	//Case if not all data cant fit in current block
 	if(offset % UFS_BLOCK_SIZE + n > UFS_BLOCK_SIZE){
@@ -208,12 +210,12 @@ int writef(FILE *file, int inode, void* buffer, int n, int offset){
 		}
 		unsigned int block2 = inodes[inode].direct[offset / UFS_BLOCK_SIZE + 1];
 		if(block2 == 0){
-			block2 = allocblock();
+			block2 = metadata->data_region_addr + allocblock();
+		
 			if(!block2){
 				return -1;
 			}
 
-			block2 += metadata->data_region_addr;
 			inodes[inode].direct[offset / UFS_BLOCK_SIZE + 1] = block2;
 		}
 		block2 -= metadata->data_region_addr;

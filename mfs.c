@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "mfs.h"
 #include "udp.h"
 
@@ -9,6 +10,37 @@
 
 int sd, op;
 struct sockaddr_in addrSnd, addrRcv;
+struct timeval timeout;
+fd_set rfds;
+
+/**
+ * Sends a message to the server and waits for it to be read
+ * The msg buffer will be updated to contain the server's response
+ */
+int post(char *msg){
+	int rc;
+	while (1){
+		timeout.tv_sec = 5;
+		timeout.tv_usec = 0;
+
+		rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
+		if (rc < 0) {
+			return -1;
+		}
+
+		rc = select(sd + 1, &rfds, 0, 0, &timeout);
+		if(rc > 0){
+			break;
+		}
+	}
+
+	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
+	if(rc < 0){
+		return -1;
+	}
+	
+	return 0;
+}
 
 /*
  * Connects the client to the server.
@@ -21,6 +53,7 @@ int MFS_Init(char *hostname, int port){
 	if(sd < 0){
 		return sd;
 	}
+	FD_SET(sd, &rfds);
 
     return UDP_FillSockAddr(&addrSnd, hostname, port);
 }
@@ -43,16 +76,7 @@ int MFS_Lookup(int pinum, char *name){
 	memcpy(&msg[4], &pinum, sizeof(int));
 	memcpy(&msg[8], name, 28);
 	
-	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
-    if (rc < 0) {
-		return -1;
-    }
-
-	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
+	post(msg);
 	return (int) msg[0];
 }
 
@@ -67,17 +91,8 @@ int MFS_Stat(int inum, MFS_Stat_t *m){
 	char msg[BUFFER_SIZE];
 	memcpy(&msg[0], &op, sizeof(int));
 	memcpy(&msg[4], &inum, sizeof(int));
-
-	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
-	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
 	
+	post(msg);
 	m->type = (int) msg[4];
 	m->size = *(int*) &msg[8];
 	return (int) msg[0];
@@ -105,16 +120,7 @@ int MFS_Write(int inum, char *buffer, int offset, int nbytes){
 	memcpy(&msg[12], &offset, sizeof(int));
 	memcpy(&msg[16], buffer, nbytes); 
 	
-	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
-	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
+	post(msg);
 	return (int) msg[0];
 }
 
@@ -135,16 +141,7 @@ int MFS_Read(int inum, char *buffer, int offset, int nbytes){
 	memcpy(&msg[8], &nbytes, sizeof(int));
 	memcpy(&msg[12], &offset, sizeof(int)); 
 
-	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
-	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
+	post(msg);
 	memcpy(buffer, &msg[4], nbytes);
 	return (int) msg[0];
 }
@@ -169,16 +166,7 @@ int MFS_Creat(int pinum, int type, char *name){
 	memcpy(&msg[8], &type, sizeof(int));
 	memcpy(&msg[12], name, 28); 
 
-	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
-	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
+	post(msg);
 	return (int) msg[0];
 }
 
@@ -200,16 +188,7 @@ int MFS_Unlink(int pinum, char *name){
 	memcpy(&msg[4], &pinum, sizeof(int));
 	memcpy(&msg[8], name, 28); 
 
-	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
-	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
+	post(msg);
 	return (int) msg[0];
 }
 
@@ -222,12 +201,8 @@ int MFS_Shutdown(){
 	char msg[BUFFER_SIZE];
 
 	memcpy(&msg[0], &op, sizeof(int));
-
-	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
-	if(rc < 0){
-		return -1;
-	}
-
+	
+	post(msg);
 	return 0;
 }
 

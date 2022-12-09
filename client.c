@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
 	//Persistence tests will run if a second argument is present
 	//These tests should be ran on a seperate run after the tests below
 	MFS_Stat_t m;
-	if(argc == 3){
+	if(argc == 3 && strcmp(argv[2], "1") == 0){
 		MFS_Stat(0, &m);
 		assert(m.size == 4 * sizeof(MFS_DirEnt_t));      //Test: Directory size retains 3rd entry
 		int myfile = MFS_Lookup(0, b); 
@@ -29,7 +29,39 @@ int main(int argc, char *argv[]) {
 		assert(strcmp(msg, msgn) == 0);                  //Test: File data is correct
 
 		MFS_Shutdown();
-		printf("TEST PASSED\n");
+		printf("PERSISTENCE TESTS PASSED\n");
+		return 0;
+	}
+	//Test behavior that completly fills file storage too test edge case
+	//Should be run on clean image with 32 data blocks/32 inodes
+	else if(argc == 3 && strcmp(argv[2], "2") == 0){
+		assert(MFS_Creat(0, MFS_REGULAR_FILE, "Hello File") == 0);
+		int myfile = MFS_Lookup(0, "Hello File");
+		assert(myfile != -1);
+
+		//Tests that we can write 30 blocks (Max file size)
+		char buf[4096];
+		for(int i = 0; i < 30; i++){
+			assert(MFS_Write(myfile, buf, i * 4096, 4096) == 0);
+		}
+
+		MFS_Stat(myfile, &m);
+		assert(m.size == 4096 * 30);
+
+		assert(MFS_Write(myfile, buf, 30 * 4096, 4096) == -1); //Test: File exceeds 30 blocks (invaild size)
+		MFS_Stat(myfile, &m);
+		assert(m.size == 4096 * 30);
+
+		assert(MFS_Creat(0, MFS_REGULAR_FILE, "File 2") == 0);
+		int myfile2 = MFS_Lookup(0, "File 2");
+		assert(myfile2 != -1);
+
+		assert(MFS_Write(myfile2, buf, 0, 4096) == 0);        //Test: Can write to last remaining block
+		assert(MFS_Write(myfile2, buf, 4096, 4096) == -1);    //Test: Write fails when no more storage space
+		assert(MFS_Creat(0, MFS_DIRECTORY, "dir") == -1);     //Test: Directory fails to create when no more storage space
+
+		MFS_Shutdown();
+		printf("FILL TESTS PASSED\n");
 		return 0;
 	}
 
@@ -124,6 +156,8 @@ int main(int argc, char *argv[]) {
 	MFS_Creat(0, MFS_DIRECTORY, c);
 	int new_dir = MFS_Lookup(0, c);
 	assert(new_dir == pdir);                        //Test: Ensures new file gets previously freed inode
+													
+	//Test: 
 													
 	MFS_Shutdown();
 	printf("ALL TESTS PASSED\n");
