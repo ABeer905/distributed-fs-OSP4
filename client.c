@@ -97,6 +97,18 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	assert(MFS_Unlink(pdir, c) == 0);				//Test: Remove succeeds when file doesn't exist
+	assert(MFS_Unlink(0, c) == -1);                 //Test: Remove fails when directory isn't empty
+	assert(MFS_Unlink(pdir, b) == 0);               //Test: File remove succeeds
+	assert(MFS_Lookup(pdir, b) == -1);				//Test: Lookup fails on file
+	assert(MFS_Unlink(0, c) == 0);					//Test: Remove empty directory
+	assert(MFS_Lookup(0, c) == -1);                 //Test: Lookup fails on file
+	MFS_Stat(0, &m);
+	assert(m.size == 3 * sizeof(MFS_DirEnt_t));      //Test: Directory size updated correctly
+	MFS_Creat(0, MFS_DIRECTORY, c);
+	int new_dir = MFS_Lookup(0, c);
+	assert(new_dir == pdir);                        //Test: Ensures new file gets previously freed inode
+
 	printf("ALL TESTS PASSED\n");
     return 0;
 }

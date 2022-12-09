@@ -186,14 +186,19 @@ int MFS_Unlink(int pinum, char *name){
 
 	memcpy(&msg[0], &op, sizeof(int));
 	memcpy(&msg[4], &pinum, sizeof(int));
-	memcpy(&msg[12], name, 28); 
+	memcpy(&msg[8], name, 28); 
 
 	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
 	if(rc < 0){
 		return -1;
 	}
 
-	return 0;
+	rc = UDP_Read(sd, &addrRcv, msg, BUFFER_SIZE);
+	if(rc < 0){
+		return -1;
+	}
+
+	return (int) msg[0];
 }
 
 /*

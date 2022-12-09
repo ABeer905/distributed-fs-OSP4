@@ -104,7 +104,7 @@ void lookup(char *msg){
 
 			for(int j = 0; j < UFS_BLOCK_SIZE / sizeof(dir_ent_t); j++){
 				dir_ent_t *entry = (dir_ent_t*) &data[(block * UFS_BLOCK_SIZE) + (j * sizeof(dir_ent_t))];
-				if(strcmp(name, entry->name) == 0){
+				if(strcmp(name, entry->name) == 0 && entry->inum > -1){
 					return set_ret(msg, entry->inum);
 				}
 			}
@@ -412,9 +412,50 @@ void img_unlink(char *msg){
 	char buffer[37];
 	memcpy(&buffer[4], &pinum, 4);
 	memcpy(&buffer[8], &msg[8], 28);
-	
-
 	lookup(buffer);
+
+	//Validates parent inode. Also returns success if file doesn't exist
+	if(buffer[0] == -1 && buffer[36] != 1){
+		return set_ret(msg, RES_FAIL);
+	}else if(buffer[0] == -1){
+		return set_ret(msg, 0); //File doesn't exists - This is ok
+	}
+
+	//Can't delete non-empty directory
+	int fd = *(int *) &buffer[0];
+	if(inodes[fd].type == UFS_DIRECTORY && inodes[fd].size > 2 * sizeof(dir_ent_t)){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//free inode
+	inode_bitmap[fd / 32] &= ~(1UL << (31 - fd % 32));
+
+	//Free all allocated memory blocks
+	for(int i = 0; i < inodes[fd].size / 4096; i++){
+		int block = inodes[fd].direct[i] - metadata->data_region_addr;
+		data_bitmap[block / 32] &= ~(1UL << (31 - block % 32));
+	}
+
+	//set file size to 0
+	inodes[fd].size = 0;
+
+	//Clear entry in parent directory
+	for(int i = 0; i < inodes[pinum].size / 4096 + 1; i++){
+		int block = inodes[pinum].direct[i] - metadata->data_region_addr;
+		for(int j = 0; j < UFS_BLOCK_SIZE; j += sizeof(dir_ent_t)){
+			dir_ent_t* entry = (dir_ent_t*) &data[block * UFS_BLOCK_SIZE + j];
+			if(entry->inum == fd){
+				entry->inum = -1;
+				
+				//Update size if needed
+				if(i * UFS_BLOCK_SIZE + j == inodes[pinum].size - sizeof(dir_ent_t)){
+					inodes[pinum].size -= sizeof(dir_ent_t);
+				}
+			}
+		}
+	}
+
+	return set_ret(msg, 0);
 }
 
 void terminate(){
