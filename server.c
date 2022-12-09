@@ -188,7 +188,7 @@ int writef(FILE *file, int inode, void* buffer, int n, int offset){
 	}
 	block -= metadata->data_region_addr;
 
-	//Case if not all data ca fit in current block
+	//Case if not all data cant fit in current block
 	if(offset % UFS_BLOCK_SIZE + n > UFS_BLOCK_SIZE){
 		int split = UFS_BLOCK_SIZE - (offset % UFS_BLOCK_SIZE + n);
 		
@@ -204,19 +204,19 @@ int writef(FILE *file, int inode, void* buffer, int n, int offset){
 				return -1;
 			}
 
-			inodes[inode].direct[offset / UFS_BLOCK_SIZE] = block2;
+			inodes[inode].direct[offset / UFS_BLOCK_SIZE + 1] = block2;
 		}
 		block2 -= metadata->data_region_addr;
 
 		
 		//Write to first block
-		memcpy(&data[block * UFS_BLOCK_SIZE + offset], buffer, n + split);
+		memcpy(&data[block * UFS_BLOCK_SIZE + offset % UFS_BLOCK_SIZE], buffer, n + split);
 		//Write to second block
 		memcpy(&data[block2 * UFS_BLOCK_SIZE], &((char*)buffer)[n + split], -1 * split);
 
 	//Case if all data can fit in current block
 	}else{
-		memcpy(&data[block * UFS_BLOCK_SIZE + offset], buffer, n);
+		memcpy(&data[block * UFS_BLOCK_SIZE + offset % UFS_BLOCK_SIZE], buffer, n);
 	}
 
 	//Update metadata
@@ -254,8 +254,8 @@ void img_write(char *msg, FILE *file){
 		return set_ret(msg, RES_FAIL);
 	}
 
-	//Offset cant be nagative
-	if(offset < 0){
+	//Offset cant be nagative or greater than file size
+	if(offset < 0 || offset > inodes[inum].size){
 		return set_ret(msg, RES_FAIL);
 	}
 
@@ -267,7 +267,46 @@ void img_write(char *msg, FILE *file){
 }
 
 void img_read(char *msg){
-	printf("READ NOT IMPLEMENTED\n");
+	int inum = *(int*) &msg[4];
+	int bytes = *(int*) &msg[8];
+	int offset = *(int*) &msg[12];
+
+	//Verify valid inode
+	if(inum < 0 || inum > UFS_BLOCK_SIZE * metadata->inode_region_len / sizeof(inode_t)){
+		return set_ret(msg, RES_FAIL);	
+	}
+
+	//Verify inode is in use
+	if(!inode_inuse(inum)){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//Inode passed in must be a regular file
+	if(inodes[inum].type != UFS_REGULAR_FILE){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//Max byte size == 4096
+	if(bytes > 4096){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	//Offset cant be nagative or greater than file size
+	if(offset < 0 || offset > inodes[inum].size || offset + bytes > inodes[inum].size){
+		return set_ret(msg, RES_FAIL);
+	}
+
+	unsigned int block = inodes[inum].direct[offset / UFS_BLOCK_SIZE] - metadata->data_region_addr;
+	if(offset % UFS_BLOCK_SIZE + bytes > UFS_BLOCK_SIZE){ //Case if we need to do a split read
+		int split = UFS_BLOCK_SIZE - (offset % UFS_BLOCK_SIZE + bytes);
+		int addr = block * UFS_BLOCK_SIZE + offset % UFS_BLOCK_SIZE;
+		memcpy(&msg[4], &data[addr], bytes + split);
+		memcpy(&msg[4 + bytes + split], &data[addr+bytes+split], -1 * split);
+	} else { //Case if we can read in one go
+		memcpy(&msg[4], &data[block * UFS_BLOCK_SIZE + offset % UFS_BLOCK_SIZE], bytes);
+	}
+
+	return set_ret(msg, 0);
 }
 
 void img_creat(char *msg, FILE *file){
@@ -279,10 +318,12 @@ void img_creat(char *msg, FILE *file){
 	memcpy(&buffer[8], &msg[12], 28);
 	buffer[36] = 0;
 	lookup(buffer);
-
+	
 	//Validates parent inode. Also ensures that a file with name does not already exist
-	if(buffer[0] == 0 || buffer[36] != 1){
+	if(buffer[0] == -1 && buffer[36] != 1){
 		return set_ret(msg, RES_FAIL);
+	}else if(buffer[0] > -1){
+		return set_ret(msg, 0); //File already exists - This is ok
 	}
 
 	//Scan inode bitmap looking for free inode
@@ -366,7 +407,14 @@ void img_creat(char *msg, FILE *file){
 }
 
 void img_unlink(char *msg){
-	printf("UNLINK NOT IMPLEMENTED\n");
+	int pinum = (int) msg[4];
+
+	char buffer[37];
+	memcpy(&buffer[4], &pinum, 4);
+	memcpy(&buffer[8], &msg[8], 28);
+	
+
+	lookup(buffer);
 }
 
 void terminate(){

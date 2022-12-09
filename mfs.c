@@ -91,11 +91,15 @@ int MFS_Write(int inum, char *buffer, int offset, int nbytes){
 	op = OP_WRITE;
 	char msg[BUFFER_SIZE];
 
+	if(nbytes > 4096){
+		return -1;
+	}
+
 	memcpy(&msg[0], &op, sizeof(int));
 	memcpy(&msg[4], &inum, sizeof(int));
 	memcpy(&msg[8], &nbytes, sizeof(int));
 	memcpy(&msg[12], &offset, sizeof(int));
-	memcpy(&msg[16], &buffer, nbytes); 
+	memcpy(&msg[16], buffer, nbytes); 
 	
 	int rc = UDP_Write(sd, &addrSnd, msg, BUFFER_SIZE);
 	if(rc < 0){
@@ -137,8 +141,8 @@ int MFS_Read(int inum, char *buffer, int offset, int nbytes){
 		return -1;
 	}
 
+	memcpy(buffer, &msg[4], nbytes);
 	return (int) msg[0];
-
 }
 
 /*
