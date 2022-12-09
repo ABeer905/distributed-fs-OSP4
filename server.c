@@ -350,6 +350,11 @@ void img_creat(char *msg, FILE *file){
 		return set_ret(msg, 0); //File already exists - This is ok
 	}
 
+	//Parent inode must be a directory
+	if(inodes[pinum].type != UFS_DIRECTORY){
+		return set_ret(msg, RES_FAIL);
+	}
+
 	//Scan inode bitmap looking for free inode
 	int free = -1;
 	for(int i = 0; i < UFS_BLOCK_SIZE * metadata->inode_bitmap_len / 4; i++){

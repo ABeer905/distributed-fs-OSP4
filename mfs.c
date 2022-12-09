@@ -35,6 +35,10 @@ int MFS_Lookup(int pinum, char *name){
 	op = OP_LOOKUP;
 	char msg[BUFFER_SIZE];
 
+	if(strlen(name) > 28){
+		return -1;
+	}
+
 	memcpy(&msg[0], &op, sizeof(int));
 	memcpy(&msg[4], &pinum, sizeof(int));
 	memcpy(&msg[8], name, 28);
@@ -156,6 +160,10 @@ int MFS_Creat(int pinum, int type, char *name){
 	op = OP_CREAT;
 	char msg[BUFFER_SIZE];
 
+	if(strlen(name) > 28){
+		return -1;
+	}
+
 	memcpy(&msg[0], &op, sizeof(int));
 	memcpy(&msg[4], &pinum, sizeof(int));
 	memcpy(&msg[8], &type, sizeof(int));
@@ -183,6 +191,10 @@ int MFS_Creat(int pinum, int type, char *name){
 int MFS_Unlink(int pinum, char *name){
 	op = OP_UNLINK;
 	char msg[BUFFER_SIZE];
+
+	if(strlen(name) > 28){
+		return -1;
+	}
 
 	memcpy(&msg[0], &op, sizeof(int));
 	memcpy(&msg[4], &pinum, sizeof(int));

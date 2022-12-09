@@ -48,7 +48,9 @@ int main(int argc, char *argv[]) {
 	assert(MFS_Creat(0, MFS_REGULAR_FILE, a) == 0); //Test: Create already existing file fails
 	assert(MFS_Creat(1, MFS_REGULAR_FILE, b) == -1); //Test: Create file in non-existent inode
 	assert(MFS_Creat(0, MFS_REGULAR_FILE, b) == 0);  //Test: Create new file succeeds
-	assert(MFS_Lookup(0, b) != -1);					 //Test: New file can be found in system
+	int fd = MFS_Lookup(0, b);
+	assert(fd != -1);            					 //Test: New file can be found in system
+	assert(MFS_Creat(fd, MFS_DIRECTORY, c) == -1);   //Test: Create file fails when parent is not a directory
 	
 	assert(MFS_Creat(0, MFS_DIRECTORY, c) == 0);	 //Test: Create new directory succeeds
 	int pdir = MFS_Lookup(0, c);	
@@ -60,8 +62,6 @@ int main(int argc, char *argv[]) {
 	MFS_Stat(pdir, &m);
 	assert(m.size == 3 * sizeof(MFS_DirEnt_t));		  //Test: new directory size has default directories as well as new one			
 
-
-	int fd = MFS_Lookup(0, b);
 	MFS_Stat(fd, &m);
 	assert(m.size == 0);                             //Test: Asserts new file has size 0
 	assert(MFS_Write(fd, msg, 0, 5000) == -1);        //Test: Write greater than 4096 bytes (illegal)
