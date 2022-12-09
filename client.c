@@ -16,6 +16,23 @@ int main(int argc, char *argv[]) {
 	strcpy(c, "my dir");
 	char msg[12] = "Hello World\0";
 
+	//Persistence tests will run if a second argument is present
+	//These tests should be ran on a seperate run after the tests below
+	MFS_Stat_t m;
+	if(argc == 3){
+		MFS_Stat(0, &m);
+		assert(m.size == 4 * sizeof(MFS_DirEnt_t));      //Test: Directory size retains 3rd entry
+		int myfile = MFS_Lookup(0, b); 
+		assert(myfile != -1);                            //Test: File with name "my file" still exists
+		char msgn[12];
+		assert(MFS_Read(myfile, msgn, 0, 12) == 0);      //Test: File is readable
+		assert(strcmp(msg, msgn) == 0);                  //Test: File data is correct
+
+		MFS_Shutdown();
+		printf("TEST PASSED\n");
+		return 0;
+	}
+
 	//Note: Tests assume fresh test file image of with 64 data blocks/64 inodes
 	assert(MFS_Lookup(0, a) == 0); //Test: get root directory
 	assert(MFS_Lookup(1, a) == -1); //Test: get unused inode
@@ -23,7 +40,6 @@ int main(int argc, char *argv[]) {
 	assert(MFS_Lookup(100000, a) == -1); //Test: inode out of bounds
 	assert(MFS_Lookup(0, b) == -1); //Test: File does not exist
 
-	MFS_Stat_t m;
 	assert(MFS_Stat(-1, &m) == -1); //Test: invalid inode
 	assert(MFS_Stat(0, &m) == 0); //Test: return 0 on valid inode
 	assert(m.type == MFS_DIRECTORY); //Test: Correct file type returned
@@ -108,7 +124,8 @@ int main(int argc, char *argv[]) {
 	MFS_Creat(0, MFS_DIRECTORY, c);
 	int new_dir = MFS_Lookup(0, c);
 	assert(new_dir == pdir);                        //Test: Ensures new file gets previously freed inode
-
+													
+	MFS_Shutdown();
 	printf("ALL TESTS PASSED\n");
     return 0;
 }

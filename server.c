@@ -21,15 +21,15 @@ char *data;		   //Data blocks
  * fileimg[in] - the path of the file image
  * file[out] - the resulting file
  */
-void load_image(char* fileimg, FILE *file) {
-	file = fopen(fileimg, "r+");
+void load_image(char* fileimg, FILE **file) {
+	*file = fopen(fileimg, "r+");
 	
 	if(!file){
 		fprintf(stderr, "An error has occured\n");
 		exit(1);
 	}
 	
-	int fd = fileno(file);
+	int fd = fileno(*file);
 
 	//Read in data structures
 	int bytes;
@@ -51,6 +51,16 @@ void load_image(char* fileimg, FILE *file) {
 	bytes = UFS_BLOCK_SIZE * metadata->data_region_len;
 	data = (char*)malloc(bytes);
 	pread(fd, data, bytes, UFS_BLOCK_SIZE * metadata->data_region_addr);
+}
+
+/**
+ * Writes all data to disk
+ */
+void flush_data(FILE *file){
+	pwrite(fileno(file), inode_bitmap, metadata->inode_bitmap_len * UFS_BLOCK_SIZE, UFS_BLOCK_SIZE);
+	pwrite(fileno(file), data_bitmap, metadata->data_bitmap_len * UFS_BLOCK_SIZE, metadata->data_bitmap_addr * UFS_BLOCK_SIZE);
+	pwrite(fileno(file), inodes, metadata->inode_region_len * UFS_BLOCK_SIZE, metadata->inode_region_addr * UFS_BLOCK_SIZE);
+	pwrite(fileno(file), data, metadata->data_region_len * UFS_BLOCK_SIZE, metadata->data_region_addr * UFS_BLOCK_SIZE);
 }
 
 int inode_inuse(int inum){
@@ -224,11 +234,16 @@ int writef(FILE *file, int inode, void* buffer, int n, int offset){
 		inodes[inode].size = offset + n;
 	}
 
-	//TODO: WRITE DATA TO DISK
+	flush_data(file);
 
 	return 0;
 }
 
+/**
+ * Writes a buffer to a file of UFS_REGULAR_FILE type
+ * msg[in] - The payload
+ * file[in] - The file to write to
+ */
 void img_write(char *msg, FILE *file){
 	int inum = *(int*) &msg[4];
 	int bytes = *(int*) &msg[8];
@@ -266,6 +281,10 @@ void img_write(char *msg, FILE *file){
 	}
 }
 
+/**
+ * Reads n bytes from file at byte offset
+ * msg[in] - The message payload
+ */
 void img_read(char *msg){
 	int inum = *(int*) &msg[4];
 	int bytes = *(int*) &msg[8];
@@ -309,6 +328,11 @@ void img_read(char *msg){
 	return set_ret(msg, 0);
 }
 
+/**
+ * Creates a new file or directory
+ * msg[in] - The message payload
+ * file[in] - The file to write to
+ */
 void img_creat(char *msg, FILE *file){
 	int pinum = (int) msg[4];
 	int type = (int) msg[8];
@@ -399,6 +423,7 @@ void img_creat(char *msg, FILE *file){
 			inodes[free].size = 0;
 		}
 		inode_bitmap[free / 32] |= 1UL << (31 - free % 32);
+		flush_data(file);
 		return set_ret(msg, 0);
 	}
 	
@@ -406,7 +431,11 @@ void img_creat(char *msg, FILE *file){
 	return set_ret(msg, RES_FAIL);
 }
 
-void img_unlink(char *msg){
+/**
+ * Unlinks a file from the filesystem
+ * msg[in] - The message payload
+ */
+void img_unlink(char *msg, FILE *file){
 	int pinum = (int) msg[4];
 
 	char buffer[37];
@@ -455,11 +484,17 @@ void img_unlink(char *msg){
 		}
 	}
 
+	flush_data(file);
 	return set_ret(msg, 0);
 }
 
-void terminate(){
-	printf("TERMINATE NOT IMPLEMENTED\n");
+/**
+ * Updates all disk data and closes file. Server exits, does not return
+ */
+void terminate(FILE *file){
+	flush_data(file);
+	close(fileno(file));
+	exit(0);
 }
 
 // server code
@@ -475,7 +510,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	int port = atoi(argv[1]);
-	FILE fimg;
+	FILE *fimg;
 	load_image(argv[2], &fimg);
 
     int sd = UDP_Open(port);
@@ -497,19 +532,19 @@ int main(int argc, char *argv[]) {
 				stats(msg);
 				break;
 			case OP_WRITE:
-				img_write(msg, &fimg);
+				img_write(msg, fimg);
 				break;
 			case OP_READ:
 				img_read(msg);
 				break;
 			case OP_CREAT:
-				img_creat(msg, &fimg);
+				img_creat(msg, fimg);
 				break;
 			case OP_UNLINK:
-				img_unlink(msg);
+				img_unlink(msg, fimg);
 				break;
 			case OP_TERM:
-				terminate();
+				terminate(fimg);
 				break;
 			default:
 				fprintf(stderr, "Unsupported Opcode recieved\n");
